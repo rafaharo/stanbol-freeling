@@ -84,7 +84,7 @@
     <dependencies>
         <dependency>
             <groupId>edu.upc.freeling</groupId>
-            <artifactId>edu.upc.freeling</artifactId>
+            <artifactId>freeling</artifactId>
         </dependency>
         <dependency>
             <groupId>org.apache.stanbol</groupId>
@@ -98,6 +98,11 @@
             <groupId>commons-lang</groupId>
             <artifactId>commons-lang</artifactId>
         </dependency>
+        <dependency>
+			<groupId>org.apache.commons</groupId>
+			<artifactId>commons-lang3</artifactId>
+		</dependency>
+        
 
 		<!-- Testing -->
         <dependency> 

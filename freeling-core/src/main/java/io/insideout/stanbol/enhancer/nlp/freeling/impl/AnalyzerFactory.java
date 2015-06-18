@@ -23,7 +23,9 @@ import java.io.File;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.ServiceLoader;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 
 import org.apache.felix.scr.annotations.Reference;
 import org.apache.stanbol.enhancer.nlp.model.AnalysedText;
@@ -131,7 +133,7 @@ public class AnalyzerFactory implements ResourceFactory<AnalyzerImpl> {
     }
     
     @Override
-    public AnalyzerImpl createResource(Map<String,Object> context) {
+    public Future<AnalyzerImpl> createResource(Map<String,Object> context) {
         final String language = (String)context.get(PROPERTY_LANGUAGE);
         if(language == null){
             throw new IllegalArgumentException("The property '"+PROPERTY_LANGUAGE 
@@ -145,11 +147,11 @@ public class AnalyzerFactory implements ResourceFactory<AnalyzerImpl> {
         }
         log.info("Request to create Analyzer for language {}",language);
         final long request = System.currentTimeMillis();
-        AnalyzerImpl resource = createAnalyzer(configFile, language);
+        /*AnalyzerImpl resource = createAnalyzer(configFile, language);
         long created = System.currentTimeMillis();
         log.info("  ... create in {}ms",created-request);
-        return resource;
-        /*return executorService.submit(new Callable<AnalyzerImpl>() {
+        return resource;*/
+        return executorService.submit(new Callable<AnalyzerImpl>() {
 
             @Override
             public AnalyzerImpl call() throws Exception {
@@ -164,7 +166,7 @@ public class AnalyzerFactory implements ResourceFactory<AnalyzerImpl> {
                 }
             }
             
-        });*/
+        });
     }
     
     @Override

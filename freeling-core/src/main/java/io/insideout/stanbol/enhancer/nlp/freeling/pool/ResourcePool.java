@@ -20,11 +20,14 @@ import java.util.Collections;
 import java.util.Map;
 import java.util.Queue;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.Semaphore;
 
+import org.apache.commons.lang3.concurrent.ConcurrentUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -45,8 +48,9 @@ public class ResourcePool<T> {
     public static final int DEFAULT_SIZE = 5;
 
     private int size;
+    private int canceled = 0;
     
-    private final BlockingQueue<T> resources; 
+    private final BlockingQueue<Future<? extends T>> resources; 
     private final ResourceFactory<? extends T> factory;
     private final Map<String,Object> context;
 
@@ -65,7 +69,7 @@ public class ResourcePool<T> {
         this.size = size <= 0 ? DEFAULT_SIZE : size;
         this.context = context == null ? Collections.EMPTY_MAP : 
             Collections.unmodifiableMap(context);
-        this.resources = new LinkedBlockingQueue<T>();
+        this.resources = new LinkedBlockingQueue<Future<? extends T>>();
         log.info("Initializating Pool of Resources with size: " + this.size);
         for(int i=0; i < this.size; i++){
                 resources.add(factory.createResource(context));
@@ -78,10 +82,42 @@ public class ResourcePool<T> {
         }
         
         try {
-			return resources.take();
+        	
+        	long start = System.currentTimeMillis();
+          	while(true){
+          		
+        		Future<? extends T> resource = resources.take();
+        		if(resource.isDone()){
+        			log.info("Resource is Done...");
+        			return resource.get();
+        		}
+        		else
+        			if(!resource.isCancelled())
+        				resources.put(resource); // Back Until initialization is finished
+        			else{
+        				synchronized(resources){
+        					canceled++;
+        				}
+        				if(canceled == this.size)
+        					throw new CancellationException("All Resources have been canceled");
+        			}
+        		long end = System.currentTimeMillis();
+        		if((end-start) > maxWaitMillis)
+        			throw new PoolTimeoutException(maxWaitMillis, this.size, resources.size());
+        	}	
+			
 		} catch (InterruptedException e) {
 			throw new IllegalStateException("Interupted",e);
+		} catch (ExecutionException e) {
+			log.warn("Unable to create a Resoruce because of a "
+                    + e.getCause().getClass().getSimpleName()
+                    + "while creating the Resource using "
+                    + factory.getClass().getSimpleName() 
+                    + " (message: "+e.getCause().getMessage()
+                    + ")!",e);
 		}
+        
+        return null;
      }
 
     public void returnResource(T res) {
@@ -89,7 +125,7 @@ public class ResourcePool<T> {
     		factory.closeResource(res, context);
     	} else {
     		try {
-				resources.put(res);
+				resources.put(ConcurrentUtils.constantFuture(res));
 			} catch (InterruptedException e) {
 				throw new IllegalStateException("Interupted",e);
 			} //return to the queue
@@ -103,14 +139,22 @@ public class ResourcePool<T> {
         	this.closed = true;
         	int counter = 0;
         	while(counter != this.size){
+        		Future<? extends T> f = null;
         		T resource = null;
         		try {
-					resource = resources.take();
+					f = resources.take();
+					if(f.isDone())
+						resource = f.get();
+					else
+						f.cancel(true);
 				} catch (InterruptedException e) {
 					throw new IllegalStateException("Interupted",e);
+				} catch (ExecutionException e) {
+					throw new IllegalStateException("Error getting state",e);
 				}
         		counter++;
-        		factory.closeResource(resource, context);
+        		if(resource != null)
+        			factory.closeResource(resource, context);
         	}
         	
         	resources.clear();
@@ -136,7 +180,7 @@ public class ResourcePool<T> {
          * @throws IllegalArgumentException if the context is missing an
          * required information
          */
-        T createResource(Map<String,Object> context);
+        Future<T> createResource(Map<String,Object> context);
 
         /**
          * Request the Factory to close this resource. This allows the factory
